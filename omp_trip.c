@@ -1,11 +1,11 @@
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <signal.h>
+#include <inttypes.h>
+#include <string.h>
 #include <omp.h>
 
-#define TOTAL_PASSES 0x278afe0f
 #define TOTAL_LAST_CHARS 16
 #define TRIP_START 3
 #define TRIP_LEN 10
@@ -16,6 +16,7 @@
 
 void tripgen(char *pass, char *pass_html, char *salt, char *buffer);
 
+/**************************************************************************/
 #define TOTAL_CHARS 95
 #define CHAR_OFFSET 32
 
@@ -23,27 +24,22 @@ void tripgen(char *pass, char *pass_html, char *salt, char *buffer);
 essentially, convert a decimal integer to a base-94 number where 1 corresponds
 with ' '
 */
-void int2string(long long int decimal, char *pass)
+inline void int2string(long long int decimal, char *pass)
 {
-	unsigned idx = 0;
-
-	while (decimal > 0) {
+	for (unsigned i = 0; decimal > 0; ++i){
 		/* 95 possible characters, starting from ' ' */
-		pass[idx] = decimal % TOTAL_CHARS + CHAR_OFFSET;
+		pass[i] = decimal % TOTAL_CHARS + CHAR_OFFSET;
 		decimal /= TOTAL_CHARS;
-		++idx;
 	}
 }
+/**************************************************************************/
 
-int n = -1;
-unsigned long *count;
+double start;
+uint64_t count = 0;
 
-void end(int sig){
-	unsigned long sum = 0;
-	for (int i = 0; i < n; ++i)
-		sum += count[i];
-	printf("%lu trips generated\n", sum);
-
+void sigint(int s){
+	double end = omp_get_wtime();
+	printf("%f trips/sec\n", count/(end-start));
 	exit(0);
 }
 
@@ -52,30 +48,28 @@ int main(int argc, char **argv) {
 	if (argc > 1)
 		search = argv[1];
 
-	signal(SIGINT, end);
+	signal(SIGINT, sigint);
 
 	char pass[PASS_LEN];
 	char pass_html[PASS_HTML_LEN];
 	char salt[SALT_LEN];
 	char ret[BUFFER_LEN];
-
-	n = omp_get_max_threads();
-	count = calloc(n, sizeof(unsigned long));
 	
-	omp_set_num_threads(omp_get_num_procs());
-	#pragma omp parallel for private(pass, pass_html, salt, ret)
-	for (long long int i = 0; i < TOTAL_PASSES; ++i) {
+	start = omp_get_wtime();
+	
+#pragma omp parallel for private(pass,pass_html,ret) schedule(static, 1)
+	for (uint64_t i = 0; i < UINT64_MAX; i++) {
 		memset(pass, '\0', PASS_LEN);
-		int2string(++i, pass);
+		int2string(i, pass);
 		if (pass[0] == '#')
 			continue;
-
 		tripgen(pass, pass_html, salt, ret);
-
-		if (strcasestr(ret+TRIP_START, search)) {
+		if (strcasestr(ret+TRIP_START, search))
 			printf("%s: %s\n", pass, ret+TRIP_START);
-		}
 
-		count[omp_get_thread_num()]++;
+		#pragma omp atomic
+		count++;
 	}
+
+	printf("done\n");
 }

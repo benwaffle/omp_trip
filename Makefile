@@ -1,4 +1,4 @@
-CFLAGS=-std=c99 -Ofast -fopenmp
+CFLAGS=-std=c99 -g -Ofast -fopenmp 
 LDFLAGS=-lcrypto
 all: omp_trip 
 
